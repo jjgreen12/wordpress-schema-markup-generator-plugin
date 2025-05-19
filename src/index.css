@@ -1,3 +1,153 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Fix for the toggle switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #e5e7eb;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+  background-color: #4f46e5;
+}
+
+input:focus + .toggle-slider {
+  box-shadow: 0 0 1px #4f46e5;
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(22px);
+}
+
+/* Use more specific selectors to prevent the default WordPress admin styles from interfering */
+#root input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 1rem;
+  width: 1rem;
+  background-color: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  margin-top: 0.2rem;
+  display: grid;
+  place-content: center;
+}
+
+#root input[type="checkbox"]:checked {
+  background-color: #4f46e5;
+  border-color: #4f46e5;
+}
+
+#root input[type="checkbox"]:checked::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  transform: scale(1);
+  transform-origin: center;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background-color: white;
+}
+
+/* Fix z-index issues with WordPress admin menu */
+.wp-admin .wrap {
+  position: relative;
+  z-index: 1;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure content is full width inside WordPress admin */
+.container {
+  max-width: 100%;
+}
+
+/* Fix button styles */
+#root button:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+#root button:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+/* Fix textarea styles */
+#root textarea {
+  min-height: auto;
+}
+
+/* Fix select styles */
+#root select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.5rem center;
+  background-repeat: no-repeat;
+  background-size: 1.5em 1.5em;
+  padding-right: 2.5rem;
+  -webkit-print-color-adjust: exact;
+  color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Card animation */
+.schema-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.schema-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
