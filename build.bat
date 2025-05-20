@@ -1,6 +1,6 @@
 @echo off
-REM Simplified build script that only copies the PHP file without building assets
-REM This is for the fallback solution that embeds CSS and JS directly
+REM Simple build script for Schema Stunt Cock WordPress plugin
+REM This script creates a plugin package with just the PHP file
 
 echo ========================
 echo Creating Schema Stunt Cock Plugin Package
@@ -21,7 +21,7 @@ copy schema-stunt-cock.php schema-stunt-cock-plugin\
 
 REM 4. Copy README
 echo Copying README...
-copy README.md schema-stunt-cock-plugin\
+if exist "README.md" copy README.md schema-stunt-cock-plugin\
 
 REM 5. Create zip file
 echo Creating plugin zip file...
@@ -32,5 +32,4 @@ echo Build complete! Plugin zip file created: schema-stunt-cock-plugin.zip
 echo You can now install this zip file via WordPress admin panel.
 echo ========================
 
-REM Pause to see any errors
 pause
