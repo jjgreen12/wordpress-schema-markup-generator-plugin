@@ -7,7 +7,7 @@ export default defineConfig({
     // Ensure assets are placed in the correct folder structure
     outDir: 'dist',
     // Generate with static asset names instead of hashed names
-    assetsDir: 'assets',
+    assetsDir: '', // Changed from 'assets' to ensure files are in the root dist folder
     rollupOptions: {
       output: {
         // Use predictable file names
