@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
   build: {
@@ -9,19 +10,25 @@ export default defineConfig({
     // Disable asset hashing for predictable file names
     rollupOptions: {
       output: {
+        // Place entry point JS at dist/index.js
         entryFileNames: 'index.js',
+        // No code splitting for better WP compatibility
         chunkFileNames: '[name].js',
-        assetFileNames: (assetInfo) => {
-          // Handle possible undefined name
-          const name = assetInfo.name || '';
+        // Place all assets directly in dist folder
+        assetFileNames: (info) => {
+          const name = info.name || '';
+          
+          // Force CSS to be named index.css
           if (name.endsWith('.css')) {
             return 'index.css';
           }
-          return '[name].[ext]';
+          
+          // All other assets keep their names
+          return `[name].[ext]`;
         }
       }
     }
   },
-  // Match WordPress plugin structure
+  // Use root-relative paths
   base: './'
 });
