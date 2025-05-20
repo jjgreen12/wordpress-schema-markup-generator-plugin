@@ -38,9 +38,18 @@ function ssc_enqueue_assets() {
         // Ensure trailing slash
         $plugin_url = rtrim($plugin_url, '/') . '/';
         
+        // For debugging
+        if (!file_exists(SSC_PLUGIN_DIR . 'dist/index.css')) {
+            error_log('Schema Stunt Cock: CSS file not found at ' . SSC_PLUGIN_DIR . 'dist/index.css');
+        }
+        
+        if (!file_exists(SSC_PLUGIN_DIR . 'dist/index.js')) {
+            error_log('Schema Stunt Cock: JS file not found at ' . SSC_PLUGIN_DIR . 'dist/index.js');
+        }
+        
         // Enqueue built assets with versioning to prevent caching issues
-        wp_enqueue_style('ssc-styles', $plugin_url . 'dist/assets/index.css', array(), SSC_VERSION);
-        wp_enqueue_script('ssc-scripts', $plugin_url . 'dist/assets/index.js', array(), SSC_VERSION, true);
+        wp_enqueue_style('ssc-styles', $plugin_url . 'dist/index.css', array(), SSC_VERSION);
+        wp_enqueue_script('ssc-scripts', $plugin_url . 'dist/index.js', array(), SSC_VERSION, true);
         
         // Add WordPress data to window object
         wp_localize_script('ssc-scripts', 'sscData', array(
@@ -193,6 +202,9 @@ add_action('wp_ajax_ssc_get_schema', 'ssc_get_schema');
 
 // Register activation hook
 function ssc_activate() {
+    // Debug activation
+    error_log('Schema Stunt Cock plugin activated. Plugin dir: ' . SSC_PLUGIN_DIR);
+    
     // Create default options
     $default_options = array(
         'auto_generate' => true,
