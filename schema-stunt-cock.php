@@ -33,7 +33,10 @@ add_action('admin_menu', 'ssc_add_admin_menu');
 // Register scripts and styles
 function ssc_enqueue_assets() {
     if (isset($_GET['page']) && $_GET['page'] === 'schema-stunt-cock') {
-        $plugin_url = SSC_PLUGIN_URL;
+        $plugin_url = plugin_dir_url(__FILE__);
+        
+        // Ensure trailing slash
+        $plugin_url = rtrim($plugin_url, '/') . '/';
         
         // Enqueue built assets with versioning to prevent caching issues
         wp_enqueue_style('ssc-styles', $plugin_url . 'dist/assets/index.css', array(), SSC_VERSION);

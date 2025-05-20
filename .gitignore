@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Wordpress package files
+schema-stunt-cock-plugin
+schema-stunt-cock-plugin.zip
