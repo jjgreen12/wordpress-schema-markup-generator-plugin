@@ -1,0 +1,214 @@
+/* Schema Stunt Cock Admin Styles */
+
+/* Main Container */
+.ssc-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Header */
+.ssc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+/* Navigation */
+.ssc-nav {
+    display: flex;
+    gap: 10px;
+}
+
+.ssc-nav-item {
+    padding: 8px 16px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-decoration: none;
+    color: #333;
+}
+
+.ssc-nav-item.active {
+    background-color: #f0f0f1;
+    color: #2271b1;
+}
+
+/* Tabs */
+.ssc-tab {
+    background: white;
+    padding: 20px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+/* Schema Editor */
+.ssc-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+
+.ssc-editor {
+    width: 100%;
+    min-height: 400px;
+    font-family: monospace;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+/* Buttons */
+.ssc-button {
+    background-color: #2271b1;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.ssc-button:hover {
+    background-color: #135e96;
+}
+
+.ssc-button.secondary {
+    background-color: #f0f0f1;
+    color: #2271b1;
+    border: 1px solid #ddd;
+}
+
+.ssc-button.secondary:hover {
+    background-color: #ddd;
+}
+
+/* Messages */
+.ssc-success-message {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.ssc-error-message {
+    background-color: #f8d7da;
+    color: #721c24;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.ssc-info-message {
+    background-color: #e6f7ff;
+    color: #0070f3;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+.ssc-warning-message {
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 10px 15px;
+    border-radius: 4px;
+    margin-bottom: 15px;
+}
+
+/* Schema List */
+.ssc-schema-list {
+    margin-top: 20px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.ssc-schema-item {
+    padding: 15px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ssc-schema-item:last-child {
+    border-bottom: none;
+}
+
+.ssc-schema-item-info {
+    flex-grow: 1;
+}
+
+.ssc-schema-item-title {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.ssc-schema-item-meta {
+    font-size: 12px;
+    color: #666;
+}
+
+.ssc-schema-item-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Page Assignments */
+.ssc-page-assignments {
+    margin-top: 15px;
+}
+
+.ssc-page-assignment {
+    padding: 5px 10px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    display: inline-block;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.ssc-page-assignment .remove {
+    margin-left: 5px;
+    cursor: pointer;
+    color: #999;
+}
+
+.ssc-page-assignment .remove:hover {
+    color: #d63638;
+}
+
+/* Forms */
+.ssc-form-group {
+    margin-bottom: 15px;
+}
+
+.ssc-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+/* Validation */
+.ssc-validation-details ul {
+    margin: 5px 0 0 20px;
+}
+
+/* Empty States */
+.ssc-empty-state {
+    padding: 20px;
+    text-align: center;
+    color: #666;
+}
+
+.ssc-empty-assignments {
+    color: #666;
+    font-style: italic;
+}
