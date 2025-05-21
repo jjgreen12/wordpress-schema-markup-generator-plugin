@@ -589,12 +589,17 @@ function ssc_create_schema() {
     // Get data
     $name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : 'Unnamed Schema';
     $type = isset($_POST['type']) ? sanitize_text_field($_POST['type']) : '';
-    $json = isset($_POST['json']) ? $_POST['json'] : '{}'; // Don't sanitize JSON
+    $json = isset($_POST['json']) ? stripslashes($_POST['json']) : '{}'; // Don't sanitize JSON, but strip slashes
+    
+    // Debug info
+    error_log('Creating schema: ' . $name . ' of type ' . $type);
+    error_log('JSON: ' . $json);
     
     // Validate JSON
     json_decode($json);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        wp_send_json_error(array('message' => 'Invalid JSON format'));
+        error_log('JSON error: ' . json_last_error_msg());
+        wp_send_json_error(array('message' => 'Invalid JSON format: ' . json_last_error_msg()));
         exit;
     }
     
@@ -615,7 +620,8 @@ function ssc_create_schema() {
     );
     
     if ($result === false) {
-        wp_send_json_error(array('message' => 'Failed to create schema'));
+        error_log('Database error: ' . $wpdb->last_error);
+        wp_send_json_error(array('message' => 'Failed to create schema: ' . $wpdb->last_error));
         exit;
     }
     
@@ -650,7 +656,7 @@ function ssc_update_schema() {
     // Get data
     $schema_id = isset($_POST['schema_id']) ? intval($_POST['schema_id']) : 0;
     $name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : '';
-    $json = isset($_POST['json']) ? $_POST['json'] : ''; // Don't sanitize JSON
+    $json = isset($_POST['json']) ? stripslashes($_POST['json']) : ''; // Don't sanitize JSON, but strip slashes
     
     if ($schema_id <= 0) {
         wp_send_json_error(array('message' => 'Invalid schema ID'));
@@ -660,7 +666,7 @@ function ssc_update_schema() {
     // Validate JSON
     json_decode($json);
     if (json_last_error() !== JSON_ERROR_NONE) {
-        wp_send_json_error(array('message' => 'Invalid JSON format'));
+        wp_send_json_error(array('message' => 'Invalid JSON format: ' . json_last_error_msg()));
         exit;
     }
     
@@ -681,7 +687,7 @@ function ssc_update_schema() {
     );
     
     if ($result === false) {
-        wp_send_json_error(array('message' => 'Failed to update schema'));
+        wp_send_json_error(array('message' => 'Failed to update schema: ' . $wpdb->last_error));
         exit;
     }
     
@@ -1076,3 +1082,37 @@ function ssc_add_settings_link($links) {
 }
 $plugin_basename = plugin_basename(__FILE__);
 add_filter("plugin_action_links_$plugin_basename", 'ssc_add_settings_link');
+
+// Add this to your schema-stunt-cock.php temporarily
+function ssc_debug_paths() {
+    if (current_user_can('manage_options')) {
+        echo "<!--\n";
+        echo "Plugin URL: " . SSC_PLUGIN_URL . "\n";
+        echo "Plugin Dir: " . SSC_PLUGIN_DIR . "\n";
+        echo "File: " . __FILE__ . "\n";
+        echo "-->\n";
+    }
+}
+add_action('wp_head', 'ssc_debug_paths');
+
+function ssc_debug_page() {
+    add_management_page(
+        'SSC Debug',
+        'SSC Debug',
+        'manage_options',
+        'ssc-debug',
+        'ssc_debug_output'
+    );
+}
+add_action('admin_menu', 'ssc_debug_page');
+
+function ssc_debug_output() {
+    echo '<h1>SSC Debug Info</h1>';
+    echo '<p>Plugin URL: ' . SSC_PLUGIN_URL . '</p>';
+    echo '<p>Plugin DIR: ' . SSC_PLUGIN_DIR . '</p>';
+    echo '<p>File exists CSS: ' . (file_exists(SSC_PLUGIN_DIR . 'css/schema-admin.css') ? 'Yes' : 'No') . '</p>';
+    echo '<p>File exists JS: ' . (file_exists(SSC_PLUGIN_DIR . 'js/schema-admin.js') ? 'Yes' : 'No') . '</p>';
+    echo '<p>Directory structure:<pre>';
+    var_dump(scandir(SSC_PLUGIN_DIR));
+    echo '</pre></p>';
+}

@@ -7,6 +7,21 @@ jQuery(document).ready(function($) {
     let savedSchemas = [];
     let currentSchemaId = null;
     
+    // Initial template for new schemas
+    let defaultTemplate = `{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Your article title",
+  "description": "Article description",
+  "image": "https://example.com/image.jpg",
+  "datePublished": "",
+  "dateModified": "",
+  "author": {
+    "@type": "Person",
+    "name": ""
+  }
+}`;
+    
     // Load schemas from WordPress
     function loadSchemas() {
         $.ajax({
@@ -20,10 +35,15 @@ jQuery(document).ready(function($) {
                 if (response.success && response.data.schemas) {
                     savedSchemas = response.data.schemas;
                     renderSchemaList();
+                } else {
+                    // Show empty state for new installations
+                    renderSchemaList();
                 }
             },
             error: function() {
-                alert('Failed to load schemas. Please refresh the page and try again.');
+                // Handle error but still show empty state
+                renderSchemaList();
+                $('#ssc-schema-list').prepend('<div class="ssc-error-message">Failed to load schemas. Please refresh the page and try again.</div>');
             }
         });
     }
@@ -39,7 +59,14 @@ jQuery(document).ready(function($) {
         
         let html = '';
         savedSchemas.forEach(schema => {
-            const schemaObj = JSON.parse(schema.json);
+            // Parse JSON carefully with error handling
+            let schemaObj;
+            try {
+                schemaObj = JSON.parse(schema.json);
+            } catch (e) {
+                schemaObj = { "@type": "Unknown" };
+            }
+            
             const schemaType = schemaObj['@type'] || 'Unknown';
             
             let assignedPages = '';
@@ -86,7 +113,15 @@ jQuery(document).ready(function($) {
             return;
         }
         
-        const templateJson = getSchemaTemplate(schemaType);
+        // Get template and ensure it's valid JSON
+        let templateJson = getSchemaTemplate(schemaType);
+        if (!templateJson) {
+            templateJson = `{"@context":"https://schema.org","@type":"${schemaType}"}`;
+        }
+        
+        // Debug info
+        console.log('Creating new schema with type:', schemaType);
+        console.log('Template JSON:', templateJson);
         
         // Create schema in WordPress
         $.ajax({
@@ -100,15 +135,17 @@ jQuery(document).ready(function($) {
                 json: templateJson
             },
             success: function(response) {
+                console.log('Create schema response:', response);
                 if (response.success) {
                     const newSchema = response.data.schema;
                     savedSchemas.push(newSchema);
                     editSchema(newSchema.id);
                 } else {
-                    alert('Failed to create schema: ' + response.data.message);
+                    alert('Failed to create schema: ' + (response.data ? response.data.message : 'Unknown error'));
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error('AJAX error:', xhr, status, error);
                 alert('Failed to create schema. Please try again.');
             }
         });
@@ -183,7 +220,9 @@ jQuery(document).ready(function($) {
                     // Update local copy
                     schema.name = schemaName;
                     schema.json = schemaJson;
-                    schema.last_updated = response.data.last_updated;
+                    if (response.data && response.data.last_updated) {
+                        schema.last_updated = response.data.last_updated;
+                    }
                     
                     $('#ssc-save-result').html('<div class="ssc-success-message">Schema updated successfully!</div>');
                     setTimeout(() => {
@@ -193,7 +232,7 @@ jQuery(document).ready(function($) {
                     // Update the list (even though it's hidden)
                     renderSchemaList();
                 } else {
-                    alert('Failed to update schema: ' + response.data.message);
+                    alert('Failed to update schema: ' + (response.data ? response.data.message : 'Unknown error'));
                 }
             },
             error: function() {
@@ -229,7 +268,7 @@ jQuery(document).ready(function($) {
                     // Update the list
                     renderSchemaList();
                 } else {
-                    alert('Failed to delete schema: ' + response.data.message);
+                    alert('Failed to delete schema: ' + (response.data ? response.data.message : 'Unknown error'));
                 }
             },
             error: function() {
@@ -317,7 +356,7 @@ jQuery(document).ready(function($) {
                 if (response.success) {
                     renderPageAssignments(schema.pages);
                 } else {
-                    alert('Failed to update page assignments: ' + response.data.message);
+                    alert('Failed to update page assignments: ' + (response.data ? response.data.message : 'Unknown error'));
                     // Revert the change
                     schema.pages.pop();
                 }
@@ -345,7 +384,7 @@ jQuery(document).ready(function($) {
         }
         
         // Remove page
-        schema.pages = schema.pages.filter(id => id !== pageId.toString());
+        schema.pages = schema.pages.filter(id => parseInt(id) !== parseInt(pageId));
         
         // Update page assignments in WordPress
         $.ajax({
@@ -361,7 +400,7 @@ jQuery(document).ready(function($) {
                 if (response.success) {
                     renderPageAssignments(schema.pages);
                 } else {
-                    alert('Failed to update page assignments: ' + response.data.message);
+                    alert('Failed to update page assignments: ' + (response.data ? response.data.message : 'Unknown error'));
                 }
             },
             error: function() {
@@ -398,7 +437,7 @@ jQuery(document).ready(function($) {
                             $('#ssc-save-result').empty();
                         }, 3000);
                     } else {
-                        $('#ssc-save-result').html('<div class="ssc-error-message">Error: ' + response.data.message + '</div>');
+                        $('#ssc-save-result').html('<div class="ssc-error-message">Error: ' + (response.data ? response.data.message : 'Unknown error') + '</div>');
                     }
                 },
                 error: function() {
@@ -521,11 +560,29 @@ jQuery(document).ready(function($) {
     
     // Get schema template based on type
     function getSchemaTemplate(type) {
-        return sscData.schemaTemplates[type] || '{"@context":"https://schema.org","@type":"' + type + '"}';
+        if (sscData.schemaTemplates && sscData.schemaTemplates[type]) {
+            return sscData.schemaTemplates[type];
+        }
+        
+        // Fallback to a basic template
+        return JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": type
+        }, null, 2);
     }
+    
+    // Handle schema type selection in dropdown
+    $('#ssc-new-schema-type').on('change', function() {
+        const selectedType = $(this).val();
+        console.log('Selected schema type:', selectedType);
+        
+        // You could update a preview area here if needed
+    });
     
     // Initialize the page
     function init() {
+        console.log('Initializing Schema Stunt Cock');
+        
         // Load saved schemas
         loadSchemas();
         
