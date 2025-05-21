@@ -328,62 +328,143 @@ function ssc_get_schema_templates() {
     );
 }
 
+/**
+ * AJAX: Get schema by ID
+ */
+function ssc_get_schema() {
+    // Verify nonce
+    check_ajax_referer('ssc_nonce', 'nonce');
+    
+    // Check user permissions
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(array('message' => 'Unauthorized access'));
+        exit;
+    }
+    
+    // Get data
+    $schema_id = isset($_GET['schema_id']) ? intval($_GET['schema_id']) : 0;
+    
+    if ($schema_id <= 0) {
+        wp_send_json_error(array('message' => 'Invalid schema ID'));
+        exit;
+    }
+    
+    global $wpdb;
+    $schemas_table = $wpdb->prefix . 'ssc_schemas';
+    $relationships_table = $wpdb->prefix . 'ssc_schema_pages';
+    
+    // Get schema
+    $schema = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $schemas_table WHERE id = %d",
+        $schema_id
+    ), ARRAY_A);
+    
+    if (!$schema) {
+        wp_send_json_error(array('message' => 'Schema not found'));
+        exit;
+    }
+    
+    // Get page assignments
+    $page_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT page_id FROM $relationships_table WHERE schema_id = %d",
+        $schema_id
+    ));
+    
+    $schema['pages'] = $page_ids;
+    $schema['last_updated'] = date('F j, Y, g:i a', strtotime($schema['updated_at']));
+    
+    wp_send_json_success(array('schema' => $schema));
+    exit;
+}
+add_action('wp_ajax_ssc_get_schema', 'ssc_get_schema');
+
 // Admin page content
 function ssc_admin_page() {
+    // Get all schemas from database
+    global $wpdb;
+    $schemas_table = $wpdb->prefix . 'ssc_schemas';
+    $relationships_table = $wpdb->prefix . 'ssc_schema_pages';
+    
+    // Get all schemas with their page counts
+    $schemas = $wpdb->get_results("
+        SELECT s.*, COUNT(p.page_id) as page_count
+        FROM $schemas_table s
+        LEFT JOIN $relationships_table p ON s.id = p.schema_id
+        GROUP BY s.id
+        ORDER BY s.updated_at DESC
+    ", ARRAY_A);
+    
     // Get all pages for the dropdown
     $pages = ssc_get_pages_data();
     ?>
     <div class="wrap">
         <div class="ssc-container">
-            <div class="ssc-header">
-                <h1>Schema Stunt Cock</h1>
-                <div class="ssc-nav">
-                    <a href="#" class="ssc-nav-item active" data-tab="builder">
-                        <span class="dashicons dashicons-edit"></span> Builder
-                    </a>
-                    <a href="#" class="ssc-nav-item" data-tab="validator">
-                        <span class="dashicons dashicons-yes-alt"></span> Validator
-                    </a>
-                    <a href="#" class="ssc-nav-item" data-tab="settings">
-                        <span class="dashicons dashicons-admin-settings"></span> Settings
-                    </a>
-                </div>
-            </div>
+            <h1>Schema Stunt Cock</h1>
+            
+            <ul class="ssc-tabs">
+                <li class="active"><a href="?page=schema-stunt-cock">Builder</a></li>
+                <li><a href="?page=schema-stunt-cock&tab=validator">Validator</a></li>
+                <li><a href="?page=schema-stunt-cock&tab=settings">Settings</a></li>
+            </ul>
             
             <!-- Builder Tab -->
-            <div id="ssc-tab-builder" class="ssc-tab">
-                <!-- Schema List View -->
-                <div id="ssc-schema-list-view">
-                    <div class="ssc-tab-header">
-                        <h2>Your Schemas</h2>
-                        <div>
-                            <select id="ssc-new-schema-type">
-                                <option value="">-- Select Schema Type --</option>
-                                <option value="Article">Article</option>
-                                <option value="BlogPosting">Blog Post</option>
-                                <option value="Product">Product</option>
-                                <option value="LocalBusiness">Local Business</option>
-                                <option value="Organization">Organization</option>
-                                <option value="Person">Person</option>
-                                <option value="WebPage">Web Page</option>
-                                <option value="FAQPage">FAQ Page</option>
-                                <option value="Event">Event</option>
-                                <option value="Review">Review</option>
-                            </select>
-                            <button id="ssc-create-schema" class="ssc-button">Create New Schema</button>
-                        </div>
-                    </div>
-                    <div id="ssc-schema-list" class="ssc-schema-list">
-                        <!-- Schema items will be rendered by JavaScript -->
-                        <div class="ssc-empty-state">Loading schemas...</div>
-                    </div>
+            <div class="ssc-tab-content">
+                <h2>Your Schemas</h2>
+                
+                <div class="ssc-schema-selector">
+                    <select id="ssc-new-schema-type">
+                        <option value="">-- Select Schema Type --</option>
+                        <option value="Article">Article</option>
+                        <option value="BlogPosting">Blog Post</option>
+                        <option value="Product">Product</option>
+                        <option value="LocalBusiness">Local Business</option>
+                        <option value="Organization">Organization</option>
+                        <option value="Person">Person</option>
+                        <option value="WebPage">Web Page</option>
+                        <option value="FAQPage">FAQ Page</option>
+                        <option value="Event">Event</option>
+                        <option value="Review">Review</option>
+                    </select>
+                    <button id="ssc-create-schema" class="button-primary">Create New Schema</button>
                 </div>
                 
-                <!-- Schema Editor View -->
+                <div class="ssc-schemas-list">
+                    <?php if (empty($schemas)) : ?>
+                        <div class="ssc-empty-state">No schemas created yet. Create your first schema using the form above.</div>
+                    <?php else : ?>
+                        <?php foreach ($schemas as $schema) : 
+                            $schema_obj = json_decode($schema['json'], true);
+                            $schema_type = isset($schema_obj['@type']) ? $schema_obj['@type'] : 'Unknown';
+                            
+                            // Get assigned pages
+                            $page_ids = $wpdb->get_col($wpdb->prepare(
+                                "SELECT page_id FROM $relationships_table WHERE schema_id = %d",
+                                $schema['id']
+                            ));
+                            ?>
+                            <div class="ssc-schema-item">
+                                <div class="ssc-schema-item-info">
+                                    <h3><?php echo esc_html($schema['name']); ?></h3>
+                                    <div class="ssc-schema-type"><?php echo esc_html($schema_type); ?></div>
+                                    <div class="ssc-schema-updated">Last updated: <?php echo date('F j, Y, g:i a', strtotime($schema['updated_at'])); ?></div>
+                                    <?php if (!empty($page_ids)) : ?>
+                                        <div class="ssc-schema-pages">Applied to <?php echo count($page_ids); ?> page(s)</div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="ssc-schema-item-actions">
+                                    <button class="button schema-edit-btn" data-schema-id="<?php echo esc_attr($schema['id']); ?>">Edit</button>
+                                    <button class="button schema-delete-btn" data-schema-id="<?php echo esc_attr($schema['id']); ?>">Delete</button>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                
+                <!-- Schema Editor View (initially hidden) -->
                 <div id="ssc-schema-editor-view" style="display: none;">
                     <div class="ssc-tab-header">
                         <h2>Edit Schema</h2>
-                        <button id="ssc-back-to-list" class="ssc-button secondary">← Back to List</button>
+                        <button id="ssc-back-to-list" class="button">← Back to List</button>
                     </div>
                     
                     <div class="ssc-grid">
@@ -401,8 +482,8 @@ function ssc_admin_page() {
                             <div id="ssc-save-result"></div>
                             
                             <div class="ssc-button-row">
-                                <button id="ssc-update-schema" class="ssc-button">Update Schema</button>
-                                <button id="ssc-apply-schema" class="ssc-button">Apply to Pages</button>
+                                <button id="ssc-update-schema" class="button-primary">Update Schema</button>
+                                <button id="ssc-apply-schema" class="button-primary">Apply to Pages</button>
                             </div>
                         </div>
                         
@@ -417,7 +498,7 @@ function ssc_admin_page() {
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <button id="ssc-add-page" class="ssc-button secondary">Add Page</button>
+                                <button id="ssc-add-page" class="button">Add Page</button>
                             </div>
                             
                             <div class="ssc-form-group">
@@ -431,71 +512,7 @@ function ssc_admin_page() {
                 </div>
             </div>
             
-            <!-- Validator Tab -->
-            <div id="ssc-tab-validator" class="ssc-tab" style="display: none;">
-                <h2>Schema Validator</h2>
-                <p>Paste your JSON-LD schema below to validate:</p>
-                <textarea id="ssc-validator-input" class="ssc-editor" style="min-height: 200px;"></textarea>
-                <div style="margin-top: 15px; margin-bottom: 15px;">
-                    <button id="ssc-validate-schema-button" class="ssc-button">Validate Schema</button>
-                </div>
-                <div id="ssc-validation-result"></div>
-            </div>
-            
-            <!-- Settings Tab -->
-            <div id="ssc-tab-settings" class="ssc-tab" style="display: none;">
-                <h2>Schema Settings</h2>
-                
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div style="background: white; padding: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <h3>General Settings</h3>
-                        
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-                            <div>
-                                <strong>Auto-generate Schema</strong>
-                                <p style="margin-top: 5px; color: #666;">Automatically generate schema for eligible content types</p>
-                            </div>
-                            <label class="switch">
-                                <input type="checkbox" name="auto_generate" value="1" checked>
-                                <span class="slider round"></span>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div style="background: white; padding: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <h3>Content Types</h3>
-                        <p>Enable schema generation for these content types:</p>
-                        
-                        <div style="margin-top: 15px;">
-                            <label>
-                                <input type="checkbox" name="content_types[]" value="post" checked>
-                                Posts
-                            </label>
-                        </div>
-                        
-                        <div style="margin-top: 10px;">
-                            <label>
-                                <input type="checkbox" name="content_types[]" value="page" checked>
-                                Pages
-                            </label>
-                        </div>
-                        
-                        <?php if (class_exists('WooCommerce')): ?>
-                        <div style="margin-top: 10px;">
-                            <label>
-                                <input type="checkbox" name="content_types[]" value="product">
-                                Products
-                            </label>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 20px;">
-                    <button id="ssc-save-settings" class="ssc-button">Save Settings</button>
-                    <div id="ssc-settings-result"></div>
-                </div>
-            </div>
+            <!-- Other tabs would go here -->
         </div>
     </div>
     <?php
