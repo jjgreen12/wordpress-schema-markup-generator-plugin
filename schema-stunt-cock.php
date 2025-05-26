@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Schema Stunt Cock
  * Description: Advanced schema markup generator for WordPress
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Your Name
  * License: GPL v2 or later
  */
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Plugin constants
-define('SSC_VERSION', '1.0.1');
+define('SSC_VERSION', '1.0.2');
 define('SSC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SSC_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -738,6 +738,9 @@ function ssc_delete_schema() {
     $schemas_table = $wpdb->prefix . 'ssc_schemas';
     $relationships_table = $wpdb->prefix . 'ssc_schema_pages';
     
+    // Remove schema from all pages before deleting
+    ssc_remove_schema_from_all_pages($schema_id);
+    
     // Delete schema
     $result = $wpdb->delete(
         $schemas_table,
@@ -868,16 +871,84 @@ function ssc_apply_schema() {
         exit;
     }
     
-    // Apply schema to each page
+    // Apply schema to each page using the new multiple schema storage method
     foreach ($page_ids as $page_id) {
-        update_post_meta($page_id, '_ssc_schema', wp_slash($schema['json']));
-        update_post_meta($page_id, '_ssc_schema_id', $schema_id);
+        ssc_add_schema_to_page($page_id, $schema_id, $schema['json']);
     }
     
     wp_send_json_success();
     exit;
 }
 add_action('wp_ajax_ssc_apply_schema', 'ssc_apply_schema');
+
+/**
+ * Add schema to a page (supports multiple schemas per page)
+ */
+function ssc_add_schema_to_page($page_id, $schema_id, $schema_json) {
+    // Get existing schemas for this page
+    $existing_schemas = get_post_meta($page_id, '_ssc_schemas', true);
+    
+    if (!is_array($existing_schemas)) {
+        $existing_schemas = array();
+    }
+    
+    // Add or update this schema
+    $existing_schemas[$schema_id] = array(
+        'id' => $schema_id,
+        'json' => $schema_json,
+        'applied_at' => current_time('mysql')
+    );
+    
+    // Save updated schemas array
+    update_post_meta($page_id, '_ssc_schemas', $existing_schemas);
+    
+    // Also maintain a list of schema IDs for easier querying
+    $schema_ids = array_keys($existing_schemas);
+    update_post_meta($page_id, '_ssc_schema_ids', $schema_ids);
+}
+
+/**
+ * Remove schema from a page
+ */
+function ssc_remove_schema_from_page($page_id, $schema_id) {
+    // Get existing schemas for this page
+    $existing_schemas = get_post_meta($page_id, '_ssc_schemas', true);
+    
+    if (!is_array($existing_schemas)) {
+        return;
+    }
+    
+    // Remove this schema
+    unset($existing_schemas[$schema_id]);
+    
+    if (empty($existing_schemas)) {
+        // No schemas left, remove the meta fields
+        delete_post_meta($page_id, '_ssc_schemas');
+        delete_post_meta($page_id, '_ssc_schema_ids');
+    } else {
+        // Update the remaining schemas
+        update_post_meta($page_id, '_ssc_schemas', $existing_schemas);
+        $schema_ids = array_keys($existing_schemas);
+        update_post_meta($page_id, '_ssc_schema_ids', $schema_ids);
+    }
+}
+
+/**
+ * Remove schema from all pages (used when deleting a schema)
+ */
+function ssc_remove_schema_from_all_pages($schema_id) {
+    global $wpdb;
+    
+    // Get all pages that have this schema
+    $page_ids = $wpdb->get_col($wpdb->prepare(
+        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_ssc_schema_ids' AND meta_value LIKE %s",
+        '%' . $wpdb->esc_like('"' . $schema_id . '"') . '%'
+    ));
+    
+    foreach ($page_ids as $page_id) {
+        ssc_remove_schema_from_page($page_id, $schema_id);
+    }
+}
 
 /**
  * AJAX: Save settings
@@ -913,41 +984,70 @@ function ssc_save_settings() {
 add_action('wp_ajax_ssc_save_settings', 'ssc_save_settings');
 
 /**
- * Add schema to page head
+ * Add schema to page head (UPDATED to support multiple schemas)
  */
 function ssc_output_schema() {
     if (is_singular()) {
         $post_id = get_the_ID();
-        $schema = get_post_meta($post_id, '_ssc_schema', true);
         
-        if ($schema) {
-            // Apply filters to allow customization
-            $schema = apply_filters('ssc_schema_output', $schema, $post_id);
-            
+        // Get all schemas for this page
+        $page_schemas = get_post_meta($post_id, '_ssc_schemas', true);
+        
+        if (is_array($page_schemas) && !empty($page_schemas)) {
+            // Output multiple schemas
             echo "\n<!-- Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
-            echo "<script type=\"application/ld+json\">\n";
-            echo wp_kses_post($schema) . "\n";
-            echo "</script>\n";
-        } else {
-            // Check if auto-generate is enabled
-            $settings = get_option('ssc_settings', array(
-                'auto_generate' => true,
-                'content_types' => array('post', 'page')
-            ));
             
-            if ($settings['auto_generate']) {
-                $post_type = get_post_type();
-                
-                // Check if this post type is in the enabled content types
-                if (in_array($post_type, $settings['content_types'])) {
-                    // Auto-generate schema based on post type
-                    $auto_schema = ssc_generate_auto_schema($post_id);
+            foreach ($page_schemas as $schema_data) {
+                if (isset($schema_data['json']) && !empty($schema_data['json'])) {
+                    // Apply filters to allow customization
+                    $schema_json = apply_filters('ssc_schema_output', $schema_data['json'], $post_id, $schema_data['id']);
                     
-                    if ($auto_schema) {
-                        echo "\n<!-- Auto-generated Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
-                        echo "<script type=\"application/ld+json\">\n";
-                        echo wp_kses_post($auto_schema) . "\n";
-                        echo "</script>\n";
+                    echo "<script type=\"application/ld+json\">\n";
+                    echo wp_kses_post($schema_json) . "\n";
+                    echo "</script>\n";
+                }
+            }
+        } else {
+            // Check for legacy single schema format for backward compatibility
+            $legacy_schema = get_post_meta($post_id, '_ssc_schema', true);
+            
+            if ($legacy_schema) {
+                // Migrate legacy schema to new format
+                $legacy_schema_id = get_post_meta($post_id, '_ssc_schema_id', true);
+                if ($legacy_schema_id) {
+                    ssc_add_schema_to_page($post_id, $legacy_schema_id, $legacy_schema);
+                    
+                    // Clean up legacy meta fields
+                    delete_post_meta($post_id, '_ssc_schema');
+                    delete_post_meta($post_id, '_ssc_schema_id');
+                }
+                
+                // Output the migrated schema
+                echo "\n<!-- Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
+                echo "<script type=\"application/ld+json\">\n";
+                echo wp_kses_post($legacy_schema) . "\n";
+                echo "</script>\n";
+            } else {
+                // Check if auto-generate is enabled
+                $settings = get_option('ssc_settings', array(
+                    'auto_generate' => true,
+                    'content_types' => array('post', 'page')
+                ));
+                
+                if ($settings['auto_generate']) {
+                    $post_type = get_post_type();
+                    
+                    // Check if this post type is in the enabled content types
+                    if (in_array($post_type, $settings['content_types'])) {
+                        // Auto-generate schema based on post type
+                        $auto_schema = ssc_generate_auto_schema($post_id);
+                        
+                        if ($auto_schema) {
+                            echo "\n<!-- Auto-generated Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
+                            echo "<script type=\"application/ld+json\">\n";
+                            echo wp_kses_post($auto_schema) . "\n";
+                            echo "</script>\n";
+                        }
                     }
                 }
             }
