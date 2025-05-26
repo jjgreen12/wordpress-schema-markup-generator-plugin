@@ -2,25 +2,14 @@
  * Schema Stunt Cock - Admin JavaScript
  * Handles all admin-side interactions
  */
+/**
+ * Schema Stunt Cock - Admin JavaScript
+ * Handles all admin-side interactions
+ */
 jQuery(document).ready(function($) {
     // Store schemas locally
     let savedSchemas = [];
     let currentSchemaId = null;
-    
-    // Initial template for new schemas
-    let defaultTemplate = `{
-  "@context": "https://schema.org",
-  "@type": "Article",
-  "headline": "Your article title",
-  "description": "Article description",
-  "image": "https://example.com/image.jpg",
-  "datePublished": "",
-  "dateModified": "",
-  "author": {
-    "@type": "Person",
-    "name": ""
-  }
-}`;
     
     // Load schemas from WordPress
     function loadSchemas() {
@@ -103,6 +92,115 @@ jQuery(document).ready(function($) {
                 deleteSchema(schemaId);
             }
         });
+    }
+    
+    // Also handle direct Edit/Delete buttons in the UI
+    function setupEditDeleteHandlers() {
+        // Handle Edit button clicks in the main interface
+        $('.schema-edit-btn').off('click').on('click', function() {
+            const schemaId = $(this).data('schema-id');
+            if (schemaId) {
+                editSchemaById(schemaId);
+            }
+        });
+        
+        // Handle Delete button clicks in the main interface
+        $('.schema-delete-btn').off('click').on('click', function() {
+            const schemaId = $(this).data('schema-id');
+            if (schemaId && confirm('Are you sure you want to delete this schema?')) {
+                deleteSchemaById(schemaId);
+            }
+        });
+    }
+    
+    // Edit schema by ID (for direct edit button clicks)
+    function editSchemaById(schemaId) {
+        // First we need to fetch the schema data
+        $.ajax({
+            url: sscData.ajaxUrl,
+            type: 'GET',
+            data: {
+                action: 'ssc_get_schema',
+                nonce: sscData.nonce,
+                schema_id: schemaId
+            },
+            success: function(response) {
+                if (response.success && response.data.schema) {
+                    // Add schema to savedSchemas array if not already there
+                    const schemaIndex = savedSchemas.findIndex(s => s.id === schemaId);
+                    if (schemaIndex === -1) {
+                        savedSchemas.push(response.data.schema);
+                    } else {
+                        savedSchemas[schemaIndex] = response.data.schema;
+                    }
+                    
+                    // Now edit the schema
+                    editSchema(schemaId);
+                } else {
+                    alert('Failed to load schema: ' + (response.data ? response.data.message : 'Unknown error'));
+                }
+            },
+            error: function() {
+                alert('Failed to load schema. Please try again.');
+            }
+        });
+    }
+    
+    // Delete schema by ID (for direct delete button clicks)
+    function deleteSchemaById(schemaId) {
+        $.ajax({
+            url: sscData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'ssc_delete_schema',
+                nonce: sscData.nonce,
+                schema_id: schemaId
+            },
+            success: function(response) {
+                if (response.success) {
+                    // Remove from local array
+                    const schemaIndex = savedSchemas.findIndex(s => s.id === schemaId);
+                    if (schemaIndex !== -1) {
+                        savedSchemas.splice(schemaIndex, 1);
+                    }
+                    
+                    // Reload the page to show the schema is gone
+                    window.location.reload();
+                } else {
+                    alert('Failed to delete schema: ' + (response.data ? response.data.message : 'Unknown error'));
+                }
+            },
+            error: function() {
+                alert('Failed to delete schema. Please try again.');
+            }
+        });
+    }
+    
+    // Edit a schema
+    function editSchema(schemaId) {
+        const schema = savedSchemas.find(s => s.id == schemaId);
+        
+        if (!schema) {
+            alert('Schema not found');
+            return;
+        }
+        
+        currentSchemaId = schemaId;
+        
+        // Show editor view, hide list view
+        $('#ssc-schema-list-view').hide();
+        $('#ssc-schema-editor-view').show();
+        
+        // Populate form
+        $('#ssc-schema-name').val(schema.name);
+        $('#ssc-schema-editor').val(schema.json);
+        
+        // Load page assignments
+        if (schema.pages) {
+            renderPageAssignments(schema.pages);
+        } else {
+            renderPageAssignments([]);
+        }
     }
     
     // Create a new schema
@@ -598,6 +696,9 @@ jQuery(document).ready(function($) {
         $('#ssc-add-page').on('click', addPageAssignment);
         $('#ssc-validate-schema-button').on('click', validateSchema);
         
+        // Set up edit/delete handlers
+        setupEditDeleteHandlers();
+        
         // Tab navigation
         $('.ssc-nav-item').on('click', function(e) {
             e.preventDefault();
@@ -615,4 +716,12 @@ jQuery(document).ready(function($) {
     
     // Initialize when document is ready
     init();
+    
+    // Set up a MutationObserver to watch for DOM changes and reattach handlers when needed
+    const observer = new MutationObserver(function(mutations) {
+        setupEditDeleteHandlers();
+    });
+    
+    // Start observing the document body for changes
+    observer.observe(document.body, { childList: true, subtree: true });
 });
