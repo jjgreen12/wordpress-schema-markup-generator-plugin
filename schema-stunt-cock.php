@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Schema Stunt Cock
  * Description: Advanced schema markup generator for WordPress
- * Version: 1.0.2
- * Author: Your Name
+ * Version: 1.0.6
+ * Author: BigHouse
  * License: GPL v2 or later
  */
 
@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Plugin constants
-define('SSC_VERSION', '1.0.2');
+define('SSC_VERSION', '1.0.3');
 define('SSC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SSC_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -794,6 +794,9 @@ function ssc_update_page_assignments() {
     $wpdb->query('START TRANSACTION');
     
     try {
+        // First, remove this schema from all pages where it was previously applied
+        ssc_remove_schema_from_all_pages($schema_id);
+        
         // Delete existing relationships
         $wpdb->delete(
             $relationships_table,
@@ -825,19 +828,16 @@ function ssc_update_page_assignments() {
 add_action('wp_ajax_ssc_update_page_assignments', 'ssc_update_page_assignments');
 
 /**
- * AJAX: Apply schema to pages
+ * FIXED: AJAX Apply Schema function
  */
 function ssc_apply_schema() {
-    // Verify nonce
     check_ajax_referer('ssc_nonce', 'nonce');
     
-    // Check user permissions
     if (!current_user_can('manage_options')) {
         wp_send_json_error(array('message' => 'Unauthorized access'));
         exit;
     }
     
-    // Get data
     $schema_id = isset($_POST['schema_id']) ? intval($_POST['schema_id']) : 0;
     
     if ($schema_id <= 0) {
@@ -849,7 +849,7 @@ function ssc_apply_schema() {
     $schemas_table = $wpdb->prefix . 'ssc_schemas';
     $relationships_table = $wpdb->prefix . 'ssc_schema_pages';
     
-    // Get schema
+    // Get schema from database
     $schema = $wpdb->get_row($wpdb->prepare(
         "SELECT * FROM $schemas_table WHERE id = %d",
         $schema_id
@@ -871,51 +871,120 @@ function ssc_apply_schema() {
         exit;
     }
     
-    // Apply schema to each page using the new multiple schema storage method
-    foreach ($page_ids as $page_id) {
-        ssc_add_schema_to_page($page_id, $schema_id, $schema['json']);
+    // Clean the JSON from database
+    $raw_json = $schema['json'];
+    $clean_json = wp_unslash($raw_json);
+    $clean_json = stripslashes($clean_json);
+    
+    // Validate JSON
+    $parsed = json_decode($clean_json, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        wp_send_json_error(array('message' => 'Schema contains invalid JSON: ' . json_last_error_msg()));
+        exit;
     }
     
-    wp_send_json_success();
+    // Re-encode cleanly
+    $final_json = wp_json_encode($parsed, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    
+    // Apply to pages
+    $applied_count = 0;
+    $failed_pages = array();
+    
+    foreach ($page_ids as $page_id) {
+        if (ssc_add_schema_to_page($page_id, $schema_id, $final_json)) {
+            $applied_count++;
+        } else {
+            $failed_pages[] = $page_id;
+        }
+    }
+    
+    if ($applied_count > 0) {
+        $message = "Schema successfully applied to {$applied_count} page(s)";
+        if (!empty($failed_pages)) {
+            $message .= ". Failed on pages: " . implode(', ', $failed_pages);
+        }
+        
+        wp_send_json_success(array(
+            'message' => $message,
+            'applied_count' => $applied_count,
+            'failed_pages' => $failed_pages
+        ));
+    } else {
+        wp_send_json_error(array('message' => 'Failed to apply schema to any pages'));
+    }
+    
     exit;
 }
+
 add_action('wp_ajax_ssc_apply_schema', 'ssc_apply_schema');
 
 /**
- * Add schema to a page (supports multiple schemas per page)
+ * FIXED: Add schema to a page (supports multiple schemas per page)
+ */
+/**
+ * FIXED: Add schema to a page with proper JSON handling
  */
 function ssc_add_schema_to_page($page_id, $schema_id, $schema_json) {
-    // Get existing schemas for this page
-    $existing_schemas = get_post_meta($page_id, '_ssc_schemas', true);
+    // Validate inputs
+    if (empty($page_id) || empty($schema_id) || empty($schema_json)) {
+        error_log("SSC: Invalid parameters for ssc_add_schema_to_page");
+        return false;
+    }
     
+    // CRITICAL FIX: Proper JSON cleaning and validation
+    $schema_json = wp_unslash($schema_json); // Remove WordPress slashes
+    $schema_json = stripslashes($schema_json); // Remove any remaining slashes
+    $schema_json = trim($schema_json); // Remove whitespace
+    
+    // Parse JSON to validate and clean it
+    $parsed_schema = json_decode($schema_json, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("SSC: JSON decode error for schema $schema_id: " . json_last_error_msg());
+        error_log("SSC: Raw JSON (first 500 chars): " . substr($schema_json, 0, 500));
+        return false;
+    }
+    
+    // Re-encode as clean JSON without escaping
+    $clean_json = wp_json_encode($parsed_schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    
+    if ($clean_json === false) {
+        error_log("SSC: Failed to encode clean JSON for schema $schema_id");
+        return false;
+    }
+    
+    // Get existing schemas
+    $existing_schemas = get_post_meta($page_id, '_ssc_schemas', true);
     if (!is_array($existing_schemas)) {
         $existing_schemas = array();
     }
     
-    // Add or update this schema
+    // Store schema with clean JSON
     $existing_schemas[$schema_id] = array(
-        'id' => $schema_id,
-        'json' => $schema_json,
+        'id' => intval($schema_id),
+        'json' => $clean_json,
         'applied_at' => current_time('mysql')
     );
     
-    // Save updated schemas array
-    update_post_meta($page_id, '_ssc_schemas', $existing_schemas);
+    // Update meta with proper serialization
+    $update_result = update_post_meta($page_id, '_ssc_schemas', $existing_schemas);
     
-    // Also maintain a list of schema IDs for easier querying
+    // Update schema IDs list
     $schema_ids = array_keys($existing_schemas);
     update_post_meta($page_id, '_ssc_schema_ids', $schema_ids);
+    
+    error_log("SSC: Successfully stored schema $schema_id for page $page_id");
+    return $update_result !== false;
 }
 
 /**
- * Remove schema from a page
+ * Remove schema from a page - FIXED VERSION
  */
 function ssc_remove_schema_from_page($page_id, $schema_id) {
     // Get existing schemas for this page
     $existing_schemas = get_post_meta($page_id, '_ssc_schemas', true);
     
     if (!is_array($existing_schemas)) {
-        return;
+        return true; // Nothing to remove
     }
     
     // Remove this schema
@@ -931,22 +1000,29 @@ function ssc_remove_schema_from_page($page_id, $schema_id) {
         $schema_ids = array_keys($existing_schemas);
         update_post_meta($page_id, '_ssc_schema_ids', $schema_ids);
     }
+    
+    return true;
 }
 
 /**
- * Remove schema from all pages (used when deleting a schema)
+ * Remove schema from all pages (used when deleting a schema) - FIXED VERSION
  */
 function ssc_remove_schema_from_all_pages($schema_id) {
     global $wpdb;
     
-    // Get all pages that have this schema
-    $page_ids = $wpdb->get_col($wpdb->prepare(
-        "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_ssc_schema_ids' AND meta_value LIKE %s",
-        '%' . $wpdb->esc_like('"' . $schema_id . '"') . '%'
-    ));
+    // Get all pages that have schemas
+    $pages_with_schemas = $wpdb->get_results(
+        "SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_ssc_schemas'",
+        ARRAY_A
+    );
     
-    foreach ($page_ids as $page_id) {
-        ssc_remove_schema_from_page($page_id, $schema_id);
+    foreach ($pages_with_schemas as $page_meta) {
+        $page_id = $page_meta['post_id'];
+        $schemas_data = maybe_unserialize($page_meta['meta_value']);
+        
+        if (is_array($schemas_data) && isset($schemas_data[$schema_id])) {
+            ssc_remove_schema_from_page($page_id, $schema_id);
+        }
     }
 }
 
@@ -984,76 +1060,75 @@ function ssc_save_settings() {
 add_action('wp_ajax_ssc_save_settings', 'ssc_save_settings');
 
 /**
- * Add schema to page head (UPDATED to support multiple schemas)
+ * FIXED: Schema output with proper JSON handling
  */
 function ssc_output_schema() {
     if (is_singular()) {
         $post_id = get_the_ID();
         
-        // Get all schemas for this page
+        // Get schemas from post meta
         $page_schemas = get_post_meta($post_id, '_ssc_schemas', true);
         
         if (is_array($page_schemas) && !empty($page_schemas)) {
-            // Output multiple schemas
             echo "\n<!-- Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
             
-            foreach ($page_schemas as $schema_data) {
+            foreach ($page_schemas as $schema_id => $schema_data) {
                 if (isset($schema_data['json']) && !empty($schema_data['json'])) {
-                    // Apply filters to allow customization
-                    $schema_json = apply_filters('ssc_schema_output', $schema_data['json'], $post_id, $schema_data['id']);
+                    // Get the stored JSON
+                    $stored_json = $schema_data['json'];
                     
-                    echo "<script type=\"application/ld+json\">\n";
-                    echo wp_kses_post($schema_json) . "\n";
-                    echo "</script>\n";
+                    // Validate JSON before output
+                    $parsed_schema = json_decode($stored_json, true);
+                    
+                    if (json_last_error() === JSON_ERROR_NONE && is_array($parsed_schema)) {
+                        // Format for pretty output
+                        $formatted_json = wp_json_encode($parsed_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        
+                        if ($formatted_json !== false) {
+                            // Apply filters
+                            $output_json = apply_filters('ssc_schema_output', $formatted_json, $post_id, $schema_id);
+                            
+                            echo "<script type=\"application/ld+json\">\n";
+                            echo $output_json . "\n";
+                            echo "</script>\n";
+                        } else {
+                            error_log("SSC: Failed to format JSON for output - Schema $schema_id");
+                        }
+                    } else {
+                        error_log("SSC: Invalid stored JSON for schema $schema_id: " . json_last_error_msg());
+                    }
                 }
             }
         } else {
-            // Check for legacy single schema format for backward compatibility
+            // Legacy schema handling
             $legacy_schema = get_post_meta($post_id, '_ssc_schema', true);
-            
             if ($legacy_schema) {
-                // Migrate legacy schema to new format
-                $legacy_schema_id = get_post_meta($post_id, '_ssc_schema_id', true);
-                if ($legacy_schema_id) {
-                    ssc_add_schema_to_page($post_id, $legacy_schema_id, $legacy_schema);
-                    
-                    // Clean up legacy meta fields
-                    delete_post_meta($post_id, '_ssc_schema');
-                    delete_post_meta($post_id, '_ssc_schema_id');
-                }
+                $clean_legacy = wp_unslash($legacy_schema);
+                $parsed_legacy = json_decode($clean_legacy, true);
                 
-                // Output the migrated schema
-                echo "\n<!-- Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
-                echo "<script type=\"application/ld+json\">\n";
-                echo wp_kses_post($legacy_schema) . "\n";
-                echo "</script>\n";
-            } else {
-                // Check if auto-generate is enabled
-                $settings = get_option('ssc_settings', array(
-                    'auto_generate' => true,
-                    'content_types' => array('post', 'page')
-                ));
-                
-                if ($settings['auto_generate']) {
-                    $post_type = get_post_type();
-                    
-                    // Check if this post type is in the enabled content types
-                    if (in_array($post_type, $settings['content_types'])) {
-                        // Auto-generate schema based on post type
-                        $auto_schema = ssc_generate_auto_schema($post_id);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $legacy_schema_id = get_post_meta($post_id, '_ssc_schema_id', true);
+                    if ($legacy_schema_id) {
+                        // Migrate to new format
+                        $clean_json = wp_json_encode($parsed_legacy, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                        ssc_add_schema_to_page($post_id, $legacy_schema_id, $clean_json);
                         
-                        if ($auto_schema) {
-                            echo "\n<!-- Auto-generated Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
-                            echo "<script type=\"application/ld+json\">\n";
-                            echo wp_kses_post($auto_schema) . "\n";
-                            echo "</script>\n";
-                        }
+                        // Clean up
+                        delete_post_meta($post_id, '_ssc_schema');
+                        delete_post_meta($post_id, '_ssc_schema_id');
                     }
+                    
+                    // Output migrated schema
+                    echo "\n<!-- Migrated Schema by Schema Stunt Cock v" . esc_attr(SSC_VERSION) . " -->\n";
+                    echo "<script type=\"application/ld+json\">\n";
+                    echo wp_json_encode($parsed_legacy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+                    echo "</script>\n";
                 }
             }
         }
     }
 }
+
 add_action('wp_head', 'ssc_output_schema', 10);
 
 /**
@@ -1167,6 +1242,20 @@ function ssc_generate_auto_schema($post_id) {
     return wp_json_encode($schema, JSON_PRETTY_PRINT);
 }
 
+/**
+ * Debug function to check current page schemas
+ */
+function ssc_debug_page_schemas() {
+    if (current_user_can('manage_options') && isset($_GET['ssc_debug'])) {
+        if (is_singular()) {
+            $post_id = get_the_ID();
+            $schemas = get_post_meta($post_id, '_ssc_schemas', true);
+            echo "\n<!-- SSC DEBUG: Page $post_id schemas: " . print_r($schemas, true) . " -->\n";
+        }
+    }
+}
+add_action('wp_head', 'ssc_debug_page_schemas', 1);
+
 // Register activation hook
 function ssc_activate() {
     // Create tables
@@ -1233,3 +1322,88 @@ function ssc_debug_output() {
     var_dump(scandir(SSC_PLUGIN_DIR));
     echo '</pre></p>';
 }
+
+/**
+ * Debug function to show current schema status
+ */
+function ssc_debug_current_schemas() {
+    if (current_user_can('manage_options') && isset($_GET['ssc_debug'])) {
+        if (is_singular()) {
+            $post_id = get_the_ID();
+            $schemas = get_post_meta($post_id, '_ssc_schemas', true);
+            
+            echo "\n<!-- SSC DEBUG for Post $post_id -->\n";
+            
+            if (is_array($schemas)) {
+                foreach ($schemas as $schema_id => $schema_data) {
+                    echo "<!-- Schema $schema_id: -->\n";
+                    echo "<!-- JSON Length: " . strlen($schema_data['json']) . " -->\n";
+                    echo "<!-- JSON Valid: " . (json_decode($schema_data['json']) ? 'YES' : 'NO') . " -->\n";
+                    echo "<!-- JSON Error: " . json_last_error_msg() . " -->\n";
+                    echo "<!-- First 100 chars: " . substr($schema_data['json'], 0, 100) . "... -->\n";
+                }
+            } else {
+                echo "<!-- No schemas found or invalid format -->\n";
+            }
+            
+            echo "<!-- SSC DEBUG END -->\n";
+        }
+    }
+}
+add_action('wp_head', 'ssc_debug_current_schemas', 1);
+/**
+ * Enhanced debug function
+ */
+function ssc_debug_schema_json() {
+    if (current_user_can('manage_options') && isset($_GET['ssc_debug'])) {
+        if (is_singular()) {
+            $post_id = get_the_ID();
+            $schemas = get_post_meta($post_id, '_ssc_schemas', true);
+            
+            echo "\n<!-- SSC JSON DEBUG for Post $post_id -->\n";
+            
+            if (is_array($schemas)) {
+                foreach ($schemas as $schema_id => $schema_data) {
+                    echo "<!-- Schema ID: $schema_id -->\n";
+                    
+                    if (isset($schema_data['json'])) {
+                        $json = $schema_data['json'];
+                        $parsed = json_decode($json, true);
+                        
+                        echo "<!-- JSON Length: " . strlen($json) . " -->\n";
+                        echo "<!-- JSON Valid: " . (json_last_error() === JSON_ERROR_NONE ? 'YES' : 'NO') . " -->\n";
+                        echo "<!-- JSON Error: " . json_last_error_msg() . " -->\n";
+                        echo "<!-- JSON Preview: " . substr($json, 0, 200) . "... -->\n";
+                        
+                        if (json_last_error() === JSON_ERROR_NONE) {
+                            echo "<!-- Parsed Type: " . (isset($parsed['@type']) ? $parsed['@type'] : 'Unknown') . " -->\n";
+                        }
+                    }
+                    
+                    echo "<!-- --- -->\n";
+                }
+            } else {
+                echo "<!-- No valid schemas found -->\n";
+            }
+            
+            echo "<!-- SSC JSON DEBUG END -->\n";
+        }
+    }
+}
+add_action('wp_head', 'ssc_debug_schema_json', 1);
+
+/**
+ * Admin function to clean schemas via admin panel
+ */
+function ssc_add_clean_schemas_admin_notice() {
+    if (current_user_can('manage_options') && isset($_GET['page']) && $_GET['page'] === 'schema-stunt-cock') {
+        if (isset($_GET['clean_schemas']) && $_GET['clean_schemas'] === '1') {
+            $cleaned = ssc_clean_existing_schemas();
+            echo '<div class="notice notice-success"><p>Cleaned schemas on ' . $cleaned . ' posts.</p></div>';
+        } else {
+            $current_url = admin_url('admin.php?page=schema-stunt-cock&clean_schemas=1');
+            echo '<div class="notice notice-info"><p>If you\'re having JSON issues, <a href="' . esc_url($current_url) . '">click here to clean existing schemas</a>.</p></div>';
+        }
+    }
+}
+add_action('admin_notices', 'ssc_add_clean_schemas_admin_notice');
